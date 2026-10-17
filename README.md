@@ -66,6 +66,17 @@ which stamps a new `?v=<timestamp>` onto every CSS/JS reference.
 4. If the Pages origin differs from `https://methil1.github.io`, update
    `ALLOWED_ORIGINS` in `worker/wrangler.toml` and redeploy the worker.
 
+## Mirrored feeds
+
+Some sites refuse requests from Cloudflare's IP ranges (for example
+`yaraon-blog.com` answers the Worker with an empty page). List those feed URLs
+in `mirror.json`. The *Mirror feeds* workflow fetches them every 30 minutes with
+`tools/mirror_feeds.py` and force-pushes the result to the single-commit
+`mirror` branch. The page reads `index.json` from
+`https://raw.githubusercontent.com/methil1/feed-board/mirror/` and loads any feed
+listed there from GitHub instead of the proxy. A feed that fails on one run
+keeps its previous copy.
+
 ## Proxy API
 
 | Endpoint | Returns |

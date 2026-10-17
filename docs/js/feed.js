@@ -1,4 +1,7 @@
-// Fetching (through the proxy) and parsing RSS 1.0 / RSS 2.0 / Atom.
+// Fetching (through the proxy, or the GitHub mirror for sites that block it)
+// and parsing RSS 1.0 / RSS 2.0 / Atom.
+
+import { MIRROR_BASE } from './config.js?v=202610171833';
 
 export class FeedError extends Error {}
 
@@ -12,7 +15,42 @@ export function safeHttpUrl(raw, base) {
   }
 }
 
+const MIRROR_INDEX_TTL = 10 * 60 * 1000;
+const MIRROR_FILE = /^[0-9a-f]{12}\.xml$/;
+let mirrorIndex = { at: 0, feeds: {}, pending: null };
+
+// The mirror's index.json, shared by every feed loading at the same time.
+async function mirrorEntry(url) {
+  if (!mirrorIndex.pending || Date.now() - mirrorIndex.at > MIRROR_INDEX_TTL) {
+    mirrorIndex.at = Date.now();
+    mirrorIndex.pending = fetch(`${MIRROR_BASE}index.json`, { cache: 'no-cache' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data && data.feeds && typeof data.feeds === 'object') mirrorIndex.feeds = data.feeds;
+      })
+      .catch(() => {});
+  }
+  await mirrorIndex.pending;
+  const entry = Object.hasOwn(mirrorIndex.feeds, url) ? mirrorIndex.feeds[url] : null;
+  return entry && MIRROR_FILE.test(entry.file) ? entry : null;
+}
+
+async function fetchMirror(entry, url, fresh) {
+  let res;
+  try {
+    res = await fetch(`${MIRROR_BASE}${entry.file}${fresh ? `?t=${Date.now()}` : ''}`, { cache: fresh ? 'no-cache' : 'default' });
+  } catch {
+    throw new FeedError('ミラーに接続できません');
+  }
+  if (!res.ok) throw new FeedError(`ミラーから取得できませんでした (${res.status})`);
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  const contentType = String(entry.contentType || '');
+  return { text: decode(bytes, contentType), contentType, finalUrl: safeHttpUrl(entry.finalUrl) || url };
+}
+
 async function fetchRaw(proxy, url, fresh) {
+  const mirrored = await mirrorEntry(url);
+  if (mirrored) return fetchMirror(mirrored, url, fresh);
   let res;
   try {
     res = await fetch(`${proxy}/feed?url=${encodeURIComponent(url)}`, { cache: fresh ? 'no-cache' : 'default' });
