@@ -359,6 +359,8 @@ body.is-dragging, body.is-dragging * { cursor: grabbing !important; user-select:
 .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0 12px; }
 .row { display: flex; gap: 8px; align-items: center; }
 .row.wrap { flex-wrap: wrap; }
+.row > input { flex: 1; min-width: 0; }
+.small.error { color: var(--new); }
 .check { display: flex; gap: 8px; align-items: center; margin: 8px 0; cursor: pointer; }
 
 .results { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }

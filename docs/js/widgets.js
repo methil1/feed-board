@@ -1,5 +1,5 @@
-import { h } from './dom.js?v=202610171853';
-import { loadMemo, saveMemo } from './store.js?v=202610171853';
+import { h } from './dom.js?v=202610171907';
+import { loadMemo, saveMemo } from './store.js?v=202610171907';
 
 export const SEARCH_ENGINES = {
   google: { label: 'Google', url: 'https://www.google.com/search?q=' },
@@ -145,7 +145,7 @@ export async function searchPlace(name) {
 }
 
 export function memoWidget() {
-  const area = h('textarea', { class: 'memo', placeholder: 'メモ（この端末に自動保存）', 'aria-label': 'メモ' });
+  const area = h('textarea', { class: 'memo', placeholder: 'メモ（自動保存）', 'aria-label': 'メモ' });
   area.value = loadMemo();
   let t = null;
   const status = h('span', { class: 'muted small' }, '');

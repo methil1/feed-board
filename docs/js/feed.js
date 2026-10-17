@@ -1,7 +1,7 @@
 // Fetching (through the proxy, or the GitHub mirror for sites that block it)
 // and parsing RSS 1.0 / RSS 2.0 / Atom.
 
-import { MIRROR_BASE } from './config.js?v=202610171853';
+import { MIRROR_BASE } from './config.js?v=202610171907';
 
 export class FeedError extends Error {}
 

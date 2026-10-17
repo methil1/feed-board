@@ -1,7 +1,8 @@
-import { h, relTime, download, pickFile, toast } from './dom.js?v=202610171853';
-import { fetchFeed, resolveInput, fetchOgImage, safeHttpUrl, FeedError } from './feed.js?v=202610171853';
-import * as store from './store.js?v=202610171853';
-import { clockWidget, weatherWidget, memoWidget, searchPlace, SEARCH_ENGINES } from './widgets.js?v=202610171853';
+import { h, relTime, download, pickFile, toast } from './dom.js?v=202610171907';
+import { fetchFeed, resolveInput, fetchOgImage, safeHttpUrl, FeedError } from './feed.js?v=202610171907';
+import * as store from './store.js?v=202610171907';
+import { clockWidget, weatherWidget, memoWidget, searchPlace, SEARCH_ENGINES } from './widgets.js?v=202610171907';
+import * as sync from './sync.js?v=202610171907';
 
 const MAX_CONCURRENT_FEEDS = 6;
 const MAX_CONCURRENT_OG = 4;
@@ -15,7 +16,8 @@ let refreshTimer = null;
 
 const $ = (sel) => document.querySelector(sel);
 const currentPage = () => state.pages[state.currentPage];
-const persist = () => store.saveState(state);
+// touch=false: save locally without counting it as an edit to sync.
+const persist = (touch = true) => store.saveState(state, touch);
 const proxy = () => store.proxyOf(state);
 const target = () => (state.settings.newTab ? '_blank' : '_self');
 
@@ -87,7 +89,7 @@ function renderTabs() {
 function switchPage(i) {
   if (i === state.currentPage) return;
   state.currentPage = i;
-  persist();
+  persist(false);
   renderTabs();
   renderBoard();
   window.scrollTo({ top: 0 });
@@ -426,7 +428,7 @@ async function loadFeed(feed, fresh) {
     store.setCachedFeed(feed.url, data);
     if (data.siteUrl && data.siteUrl !== feed.siteUrl) {
       feed.siteUrl = data.siteUrl;
-      persist();
+      persist(false);
     }
     if (cards.get(feed.id) === card) renderItems(card, data);
   } catch (err) {
@@ -1062,7 +1064,7 @@ function openSettings() {
     'section',
     {},
     h('h3', {}, 'データ'),
-    h('p', { class: 'muted small' }, '設定は端末ごとに保存されます。別の端末へ移すときは「設定を書き出す」→ もう一方で「設定を読み込む」を使ってください。'),
+    h('p', { class: 'muted small' }, '同期を使わない端末へ設定を移すときは、「設定を書き出す」→ もう一方で「設定を読み込む」を使ってください。'),
     h(
       'div',
       { class: 'row wrap' },
@@ -1077,7 +1079,8 @@ function openSettings() {
       {
         class: 'btn small danger',
         onclick: () => {
-          if (!confirm('すべての設定・既読・メモを消して初期状態に戻しますか？')) return;
+          if (!confirm('この端末のすべての設定・既読・メモを消して初期状態に戻しますか？（同期もこの端末では解除されます）')) return;
+          sync.stop();
           store.resetAll();
           state = store.loadState();
           dlg.close();
@@ -1088,9 +1091,126 @@ function openSettings() {
     ),
   );
 
-  const dlg = dialog('設定', h('div', { class: 'settings' }, display, colors, pages, widgets, data), [
+  const dlg = dialog('設定', h('div', { class: 'settings' }, syncSection(), display, colors, pages, widgets, data), [
     h('button', { class: 'btn primary', onclick: () => dlg.close() }, '閉じる'),
   ]);
+  dlg.addEventListener('close', () => (redrawSync = () => {}));
+}
+
+// ---------------------------------------------------------------- sync UI
+
+let redrawSync = () => {};
+
+function syncLink(key) {
+  return `${location.origin}${location.pathname}#sync=${key}`;
+}
+
+function syncSection() {
+  const box = h('section', {});
+  const draw = () => {
+    const info = sync.syncInfo();
+    const parts = [h('h3', {}, '同期（スマホとPC）')];
+    if (!info.key) {
+      const input = h('input', { type: 'text', placeholder: '同期リンクか同期キーを貼り付け', autocomplete: 'off', spellcheck: 'false' });
+      const joinBtn = h('button', { class: 'btn small' }, 'この端末をつなぐ');
+      joinBtn.addEventListener('click', async () => {
+        const key = sync.parseKey(input.value);
+        if (!key) return toast('同期リンクか同期キーの形が正しくありません');
+        await joinSync(key);
+      });
+      const startBtn = h('button', { class: 'btn small primary' }, '同期を始める');
+      startBtn.addEventListener('click', async () => {
+        startBtn.disabled = true;
+        const err = await sync.start();
+        toast(err || '同期を始めました。ほかの端末は下のリンクでつなげます');
+        draw();
+      });
+      parts.push(
+        h('p', { class: 'muted small' }, '既読・ページとフィード・設定・メモを、同じ同期キーを入れた端末どうしでそろえます。'),
+        h('div', { class: 'row wrap' }, startBtn, h('span', { class: 'muted small' }, '← 最初の1台（今の内容を使う端末）で押します')),
+        field('2台目以降はここに貼り付け', h('div', { class: 'row' }, input, joinBtn)),
+      );
+    } else {
+      const link = h('input', { type: 'text', readonly: true, value: syncLink(info.key), onfocus: (e) => e.target.select() });
+      const copy = h('button', { class: 'btn small' }, 'コピー');
+      copy.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(link.value);
+          toast('同期リンクをコピーしました');
+        } catch {
+          link.select();
+          toast('コピーできませんでした。選択された文字を手でコピーしてください');
+        }
+      });
+      const status = info.running
+        ? '同期中…'
+        : info.lastError
+          ? `⚠ ${info.lastError}`
+          : info.lastSync
+            ? `最終同期: ${relTime(info.lastSync)}`
+            : '未同期';
+      parts.push(
+        h('p', { class: `small${info.lastError ? ' error' : ' muted'}` }, status),
+        field('ほかの端末をつなぐリンク', h('div', { class: 'row' }, link, copy), 'このリンクをスマホで開くとつながります。知っている人は中身を見たり書き換えたりできるので、人には送らないでください。'),
+        h(
+          'div',
+          { class: 'row wrap' },
+          h('button', { class: 'btn small', onclick: () => sync.syncNow() }, '今すぐ同期'),
+          h(
+            'button',
+            {
+              class: 'btn small danger',
+              onclick: () => {
+                if (!confirm('この端末の同期をやめますか？（データはこの端末に残ります）')) return;
+                sync.stop();
+                draw();
+              },
+            },
+            '同期をやめる',
+          ),
+        ),
+      );
+    }
+    box.replaceChildren(...parts);
+  };
+  draw();
+  redrawSync = draw;
+  return box;
+}
+
+async function joinSync(key) {
+  if (sync.syncInfo().key === key) return toast('この端末はもうつながっています');
+  if (!confirm('この端末のページ・フィード・設定・メモを、同期先の内容に置き換えます。既読は両方を合わせます。つなぎますか？')) return;
+  // Close dialogs first so the incoming board can be shown right away.
+  document.querySelectorAll('dialog[open]').forEach((d) => d.close());
+  const err = await sync.join(key);
+  toast(err || 'つながりました');
+  redrawSync();
+}
+
+function applyRemoteState(remote) {
+  state = store.normalizeState({ ...remote, currentPage: state.currentPage });
+  persist(false);
+  boot();
+}
+
+function applyRemoteMemo(text) {
+  const area = document.querySelector('.widget-memo textarea');
+  if (area) area.value = text;
+}
+
+function refreshReadMarks() {
+  for (const card of cards.values()) {
+    const cached = store.getCachedFeed(card.feed.url);
+    if (cached) renderItems(card, cached.data);
+  }
+}
+
+// A swap of the whole board would lose what the user is doing right now.
+function syncBusy() {
+  if (document.querySelector('dialog[open]')) return true;
+  if (drag) return true;
+  return document.activeElement?.matches?.('.widget-memo textarea') ?? false;
 }
 
 const cssVar = (k) => ({ bg: '--bg', labelBg: '--label-bg', labelFg: '--label-fg', cardBg: '--card-bg', cardFg: '--card-fg' })[k];
@@ -1266,6 +1386,24 @@ function init() {
   }, 60 * 1000);
 
   boot();
+
+  sync.initSync({
+    proxy,
+    getState: () => state,
+    applyState: applyRemoteState,
+    applyMemo: applyRemoteMemo,
+    readChanged: refreshReadMarks,
+    busy: syncBusy,
+    status: () => redrawSync(),
+  });
+
+  // Opening a sync link (…#sync=<key>) offers to join that group. The key is
+  // removed from the address bar right away so it does not linger in history.
+  const linkKey = sync.parseKey(location.hash);
+  if (linkKey) {
+    history.replaceState(null, '', location.pathname + location.search);
+    setTimeout(() => joinSync(linkKey), 300);
+  }
 }
 
 init();

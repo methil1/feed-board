@@ -1,9 +1,12 @@
 // feed-board proxy
 //   GET /feed?url=<feed or site url>  -> raw bytes of the upstream response (client decodes)
 //   GET /og?url=<article url>         -> {"image": "<og:image url or null>"}
+//   GET /sync, PUT /sync              -> cross-device sync document (see handleSync)
 // Only origins listed in ALLOWED_ORIGINS may use it.
 
 const FEED_TTL = 600; // seconds
+const SYNC_MAX_BYTES = 2 * 1024 * 1024;
+const SYNC_MIN_WRITE_GAP_MS = 2000;
 const OG_TTL = 86400;
 const MAX_FEED_BYTES = 5 * 1024 * 1024;
 const MAX_OG_BYTES = 256 * 1024;
@@ -21,7 +24,8 @@ export default {
     const cors = originOk
       ? {
           'Access-Control-Allow-Origin': origin,
-          'Access-Control-Allow-Methods': 'GET, OPTIONS',
+          'Access-Control-Allow-Methods': 'GET, PUT, OPTIONS',
+          'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Have-Rev, X-Base-Rev',
           'Access-Control-Expose-Headers': 'X-Upstream-Content-Type, X-Final-Url',
           'Access-Control-Max-Age': '86400',
           Vary: 'Origin',
@@ -31,10 +35,18 @@ export default {
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: originOk ? 204 : 403, headers: cors });
     }
-    if (request.method !== 'GET') return text('method not allowed', 405, cors);
     if (!originOk) return text('forbidden origin', 403, cors);
 
     const reqUrl = new URL(request.url);
+    if (reqUrl.pathname === '/sync') {
+      try {
+        return await handleSync(request, env, cors);
+      } catch {
+        return text('sync error', 500, cors);
+      }
+    }
+    if (request.method !== 'GET') return text('method not allowed', 405, cors);
+
     const target = validateTarget(reqUrl.searchParams.get('url'));
     if (!target) return text('invalid url', 400, cors);
 
@@ -183,6 +195,62 @@ function extractOgImage(html, base) {
 function attr(tag, name) {
   const m = tag.match(new RegExp(`\\s${name}\\s*=\\s*("([^"]*)"|'([^']*)'|([^\\s>]+))`, 'i'));
   return m ? m[2] ?? m[3] ?? m[4] : null;
+}
+
+// ---- sync ----
+// One JSON document per sync key. The key itself is never stored: the KV
+// entry is named by its SHA-256. Each write gets a new `rev`, so a client can
+// ask "has it changed since rev X?" (X-Have-Rev) without downloading it, and
+// a write based on an old rev (X-Base-Rev) is refused with 409 so the client
+// merges first instead of overwriting another device's changes.
+async function handleSync(request, env, cors) {
+  if (!env.SYNC) return text('sync not configured', 501, cors);
+  const m = /^Bearer ([A-Za-z0-9_-]{32,128})$/.exec(request.headers.get('Authorization') || '');
+  if (!m) return text('unauthorized', 401, cors);
+  const id = `sync:${await sha256hex(m[1])}`;
+  const noStore = { ...cors, 'Cache-Control': 'no-store' };
+
+  if (request.method === 'GET') {
+    const { value, metadata } = await env.SYNC.getWithMetadata(id, { type: 'text', cacheTtl: 60 });
+    if (value === null) return text('not found', 404, noStore);
+    const rev = (metadata && metadata.rev) || '';
+    const body = request.headers.get('X-Have-Rev') === rev ? JSON.stringify({ rev, unchanged: true }) : `{"rev":${JSON.stringify(rev)},"doc":${value}}`;
+    return new Response(body, { status: 200, headers: { ...noStore, 'Content-Type': 'application/json' } });
+  }
+
+  if (request.method === 'PUT') {
+    const len = Number(request.headers.get('Content-Length') || 0);
+    if (len > SYNC_MAX_BYTES) return text('too large', 413, noStore);
+    if (!request.body) return text('empty body', 400, noStore);
+    const { bytes, truncated } = await readLimited(request, SYNC_MAX_BYTES);
+    if (truncated) return text('too large', 413, noStore);
+    const raw = new TextDecoder().decode(bytes);
+    let doc;
+    try {
+      doc = JSON.parse(raw);
+    } catch {
+      return text('invalid json', 400, noStore);
+    }
+    if (!doc || typeof doc !== 'object' || Array.isArray(doc) || doc.v !== 1) return text('invalid document', 400, noStore);
+
+    const current = await env.SYNC.getWithMetadata(id, { type: 'stream' });
+    if (current.value) await current.value.cancel();
+    const meta = current.metadata || {};
+    if (current.value !== null) {
+      if ((meta.rev || '') !== (request.headers.get('X-Base-Rev') || '')) return text('conflict', 409, noStore);
+      if (Date.now() - (meta.at || 0) < SYNC_MIN_WRITE_GAP_MS) return text('too many writes', 429, noStore);
+    }
+    const rev = crypto.randomUUID();
+    await env.SYNC.put(id, raw, { metadata: { rev, at: Date.now() } });
+    return new Response(JSON.stringify({ rev }), { status: 200, headers: { ...noStore, 'Content-Type': 'application/json' } });
+  }
+
+  return text('method not allowed', 405, noStore);
+}
+
+async function sha256hex(s) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 function withCors(res, cors) {

@@ -1,7 +1,7 @@
 // Persistent state (localStorage). Every access is guarded: storage can be
 // unavailable (private mode, blocked site data) and the app must still run.
 
-import { DEFAULT_PROXY } from './config.js?v=202610171853';
+import { DEFAULT_PROXY } from './config.js?v=202610171907';
 
 const KEYS = {
   state: 'fb.state.v1',
@@ -10,6 +10,14 @@ const KEYS = {
   og: 'fb.og.v1',
   memo: 'fb.memo.v1',
   widgetsCollapsed: 'fb.widgetsCollapsed.v1',
+  sync: 'fb.sync.v1',
+};
+
+// Called with 'state' | 'memo' | 'read' after a change the user made, so the
+// sync module can push it. Set by sync.js.
+let changeListener = () => {};
+export const onChange = (fn) => {
+  changeListener = fn;
 };
 
 const READ_KEEP_MS = 30 * 24 * 3600 * 1000;
@@ -106,13 +114,13 @@ export function normalizeState(s) {
       name: String(p.name || 'ページ'),
       columns,
       feeds: (Array.isArray(p.feeds) ? p.feeds : [])
-        .filter((f) => f && typeof f.url === 'string')
+        .filter((f) => f && typeof f.url === 'string' && /^https?:\/\//i.test(f.url))
         .map((f, i, all) => ({
           id: f.id || uid(),
           title: String(f.title || f.url),
           url: f.url,
           count: clampInt(f.count, 1, 30, 8),
-          siteUrl: f.siteUrl || '',
+          siteUrl: typeof f.siteUrl === 'string' && /^https?:\/\//i.test(f.siteUrl) ? f.siteUrl : '',
           col: clampInt(f.col, 0, columns - 1, stackedCol(i, all.length, columns)),
           // Off unless turned on per feed. The old hideThumbs flag is dropped,
           // so feeds saved before this change start hidden too.
@@ -132,7 +140,13 @@ export function clampInt(v, min, max, fallback) {
 }
 
 export const loadState = () => normalizeState(load(KEYS.state, null));
-export const saveState = (s) => save(KEYS.state, s);
+// `touch` = this is a change worth syncing. Switching pages or learning a
+// feed's site URL is saved locally but must not count as a newer layout,
+// or a device that just opened would overwrite edits made elsewhere.
+export function saveState(s, touch = true) {
+  save(KEYS.state, s);
+  if (touch) changeListener('state');
+}
 export const proxyOf = (s) => (s.settings.proxy || DEFAULT_PROXY).replace(/\/+$/, '');
 
 // ---- read marks ----
@@ -143,10 +157,26 @@ export function markRead(links) {
   for (const l of links) readMap[l] = now;
   pruneRead();
   save(KEYS.read, readMap);
+  changeListener('read');
+}
+export const getReadMap = () => readMap;
+// Add marks from another device. Returns how many links became read here.
+export function mergeRead(remote) {
+  if (!remote || typeof remote !== 'object') return 0;
+  const cutoff = Date.now() - READ_KEEP_MS;
+  let added = 0;
+  for (const [link, t] of Object.entries(remote)) {
+    if (typeof t !== 'number' || t <= cutoff) continue;
+    if (!(link in readMap)) added++;
+    if (!(readMap[link] >= t)) readMap[link] = t;
+  }
+  pruneRead();
+  save(KEYS.read, readMap);
+  return added;
 }
 function pruneRead() {
   const cutoff = Date.now() - READ_KEEP_MS;
-  let entries = Object.entries(readMap).filter(([, t]) => t > cutoff);
+  let entries = Object.entries(readMap).filter(([, t]) => typeof t === 'number' && t > cutoff);
   if (entries.length > READ_MAX) entries = entries.sort((a, b) => b[1] - a[1]).slice(0, READ_MAX);
   readMap = Object.fromEntries(entries);
 }
@@ -186,7 +216,15 @@ export const saveWidgetsCollapsed = (v) => save(KEYS.widgetsCollapsed, Boolean(v
 
 // ---- memo ----
 export const loadMemo = () => load(KEYS.memo, '');
-export const saveMemo = (text) => save(KEYS.memo, text);
+export function saveMemo(text, touch = true) {
+  const ok = save(KEYS.memo, text);
+  if (touch) changeListener('memo');
+  return ok;
+}
+
+// ---- sync settings (per device; never exported or synced) ----
+export const loadSyncMeta = () => load(KEYS.sync, {});
+export const saveSyncMeta = (m) => save(KEYS.sync, m);
 
 export function resetAll() {
   for (const k of Object.values(KEYS)) {

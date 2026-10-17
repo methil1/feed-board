@@ -21,8 +21,12 @@ and a few widgets (clock + search, weather, memo).
 - OPML import/export, settings JSON export/import for moving between devices.
 - Widgets: clock + search box, weather (Open-Meteo), memo.
 
-Settings, read marks and the memo live in the browser's localStorage, so each
-device has its own copy. Use *設定を書き出す / 設定を読み込む* to copy them.
+Settings, read marks and the memo live in the browser's localStorage. To share
+them between devices, use **sync** (settings → 同期): the first device presses
+*同期を始める* and gets a link (`…/#sync=<key>`); opening that link on another
+device joins it. Pages/feeds/settings and the memo are last-writer-wins; read
+marks are merged. The open page and the widgets-collapsed state stay per device.
+Without sync, *設定を書き出す / 設定を読み込む* copies the settings by file.
 
 ## Local development
 
@@ -83,6 +87,11 @@ keeps its previous copy.
 |---|---|
 | `GET /feed?url=<url>` | Upstream body as bytes (the page decodes the charset). Headers `X-Upstream-Content-Type`, `X-Final-Url`. Cached 10 min. |
 | `GET /og?url=<url>` | `{"image": "<og:image or null>"}`. Cached 1 day. |
+| `GET /sync` | `{"rev", "doc"}` for the `Authorization: Bearer <key>` group, or `{"rev", "unchanged": true}` when `X-Have-Rev` matches. 404 if none. |
+| `PUT /sync` | Stores the JSON document (`v: 1`, max 2 MB) and returns `{"rev"}`. `X-Base-Rev` must equal the stored rev (409 otherwise, so the client merges first). |
+
+Sync documents live in the `SYNC` KV namespace under `sync:<sha256(key)>`; the
+key itself is not stored. Writes closer than 2 s apart get 429.
 
 The proxy rejects non-http(s) URLs, IP literals, `localhost`/`.local` hosts,
 non-standard ports, and responses over 5 MB.
