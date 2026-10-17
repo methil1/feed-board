@@ -74,14 +74,15 @@ const weatherCache = { key: '', at: 0, data: null };
 export function weatherWidget(state) {
   const body = h('div', { class: 'weather-body' }, h('div', { class: 'muted' }, '読み込み中…'));
   const box = h('section', { class: 'widget widget-weather' }, h('div', { class: 'widget-title' }, `天気 · ${state.widgets.place.name}`), body);
-  loadWeather(state.widgets.place)
+  const days = state.widgets.weatherDays === 3 ? 3 : 7;
+  loadWeather(state.widgets.place, days)
     .then((data) => renderWeather(body, data))
     .catch(() => body.replaceChildren(h('div', { class: 'muted' }, '天気を取得できませんでした')));
   return box;
 }
 
-async function loadWeather(place) {
-  const key = `${place.lat},${place.lon}`;
+async function loadWeather(place, days) {
+  const key = `${place.lat},${place.lon},${days}`;
   if (weatherCache.key === key && Date.now() - weatherCache.at < 30 * 60 * 1000) return weatherCache.data;
   const params = new URLSearchParams({
     latitude: place.lat,
@@ -89,7 +90,7 @@ async function loadWeather(place) {
     current: 'temperature_2m,weather_code',
     daily: 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max',
     timezone: 'Asia/Tokyo',
-    forecast_days: '3',
+    forecast_days: String(days),
   });
   const res = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`);
   if (!res.ok) throw new Error('weather');
@@ -107,19 +108,27 @@ function renderWeather(body, data) {
     h('span', { class: 'weather-temp' }, `${Math.round(data.current.temperature_2m)}℃`),
     h('span', { class: 'muted' }, label),
   );
-  const names = ['今日', '明日', '明後日'];
+  const names = ['今日', '明日'];
+  const dayLabel = (t, i) => {
+    if (names[i]) return names[i];
+    const [y, m, d] = t.split('-').map(Number);
+    return `${m}/${d}(${WEEK[new Date(y, m - 1, d).getDay()]})`;
+  };
   const days = data.daily.time.map((t, i) => {
     const [ic, lb] = wmo(data.daily.weather_code[i]);
+    const dow = new Date(`${t}T00:00:00`).getDay();
     return h(
       'div',
-      { class: 'weather-day', title: lb },
-      h('div', { class: 'muted' }, names[i] || t.slice(5)),
+      { class: `weather-day${dow === 0 ? ' sun' : dow === 6 ? ' sat' : ''}`, title: lb },
+      h('div', { class: 'muted day-label' }, dayLabel(t, i)),
       h('div', { class: 'weather-icon-s' }, ic),
       h('div', {}, h('span', { class: 'hi' }, `${Math.round(data.daily.temperature_2m_max[i])}°`), ' / ', h('span', { class: 'lo' }, `${Math.round(data.daily.temperature_2m_min[i])}°`)),
       h('div', { class: 'muted small' }, `☂ ${data.daily.precipitation_probability_max[i] ?? '-'}%`),
     );
   });
-  body.replaceChildren(now, h('div', { class: 'weather-days' }, ...days));
+  const grid = h('div', { class: 'weather-days' }, ...days);
+  grid.style.setProperty('--days', String(days.length));
+  body.replaceChildren(now, grid);
 }
 
 export async function searchPlace(name) {

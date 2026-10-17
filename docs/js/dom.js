@@ -24,7 +24,8 @@ export function relTime(ts) {
   if (diff < 86400) return `${Math.floor(diff / 3600)}時間前`;
   if (diff < 86400 * 7) return `${Math.floor(diff / 86400)}日前`;
   const d = new Date(ts);
-  return `${d.getMonth() + 1}/${d.getDate()}`;
+  const md = `${d.getMonth() + 1}/${d.getDate()}`;
+  return d.getFullYear() === new Date().getFullYear() ? md : `${d.getFullYear()}/${md}`;
 }
 
 export function download(filename, text, type) {

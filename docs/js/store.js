@@ -65,7 +65,7 @@ export function defaultState() {
           feed('VIPPER速報', 'http://vippers.jp/index.rdf'),
           feed('アルファルファモザイク', 'https://alfalfalfa.com/index.rdf'),
           feed('哲学ニュースnwk', 'http://blog.livedoor.jp/nwknews/index.rdf'),
-          feed('暇人＼(^o^)／速報', 'http://himasoku.com/index.rdf'),
+          feed('ニュー速クオリティ', 'http://news4vip.livedoor.biz/index.rdf'),
         ],
       },
     ],
@@ -83,6 +83,7 @@ export function defaultState() {
       clock: true,
       search: 'google',
       weather: true,
+      weatherDays: 7, // 3 | 7
       place: { name: '横浜', lat: 35.4437, lon: 139.638 },
       memo: true,
     },
@@ -114,6 +115,7 @@ export function normalizeState(s) {
           count: clampInt(f.count, 1, 30, 8),
           siteUrl: f.siteUrl || '',
           col: clampInt(f.col, 0, columns - 1, i % columns),
+          hideThumbs: Boolean(f.hideThumbs),
         })),
     };
   });

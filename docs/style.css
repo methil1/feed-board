@@ -195,7 +195,15 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
 .weather-now { display: flex; align-items: baseline; gap: 8px; }
 .weather-icon { font-size: 1.8em; }
 .weather-temp { font-size: 1.6em; font-weight: 600; }
-.weather-days { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 6px; text-align: center; font-size: 0.9em; }
+.weather-days { display: grid; grid-template-columns: repeat(var(--days, 7), minmax(0, 1fr)); gap: 4px; margin-top: 6px; text-align: center; font-size: 0.9em; }
+.weather-day { padding: 4px 0; border-radius: 6px; }
+.weather-day:first-child { background: var(--hover); }
+.weather-day .day-label { white-space: nowrap; font-size: 0.9em; }
+.weather-day.sun .day-label { color: #e5484d; }
+.weather-day.sat .day-label { color: #3e7bfa; }
+@media (max-width: 640px) {
+  .weather-days { font-size: 0.8em; gap: 2px; }
+}
 .weather-icon-s { font-size: 1.7em; line-height: 1.3; }
 .hi { color: #e5484d; }
 .lo { color: #3e7bfa; }
@@ -242,11 +250,26 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
 .feed-head .icon-btn:hover { opacity: 1; background: rgba(255, 255, 255, 0.12); }
 .favicon { width: 16px; height: 16px; border-radius: 3px; flex: none; }
 .feed-title { font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.feed-title:hover { text-decoration: underline; }
 .badge { background: var(--accent); color: var(--accent-fg); font-size: 0.72em; font-weight: 700; padding: 1px 7px; border-radius: 999px; }
 .feed-status { color: #ffb020; cursor: help; }
+.feed-stale { cursor: help; font-size: 0.9em; }
+.feed.stale .items { opacity: 0.6; }
 .feed-actions { display: flex; flex: none; }
-.feed.loading .feed-actions .icon-btn:nth-child(2) { animation: spin 0.9s linear infinite; }
+.feed.loading .feed-actions .reload { animation: spin 0.9s linear infinite; }
+.feed-actions a.icon-btn { display: inline-grid; place-items: center; }
+.thumb-toggle.off { opacity: 0.3 !important; text-decoration: line-through; }
+
+.drag-ghost {
+  position: fixed;
+  z-index: 60;
+  pointer-events: none;
+  max-height: 220px;
+  opacity: 0.92;
+  transform: rotate(1.2deg);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+}
+.drag-ghost .feed-head { cursor: grabbing; }
+body.is-dragging, body.is-dragging * { cursor: grabbing !important; user-select: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .items { list-style: none; margin: 0; padding: 4px 0; }

@@ -6,6 +6,7 @@ import { clockWidget, weatherWidget, memoWidget, searchPlace, SEARCH_ENGINES } f
 const MAX_CONCURRENT_FEEDS = 6;
 const MAX_CONCURRENT_OG = 4;
 const NEW_WINDOW_MS = 60 * 60 * 1000;
+const STALE_MS = 30 * 24 * 60 * 60 * 1000;
 
 let state = store.loadState();
 const cards = new Map(); // feed.id -> { el, list, badge, feed }
@@ -71,24 +72,12 @@ function renderTabs() {
           class: `tab${i === state.currentPage ? ' active' : ''}`,
           role: 'tab',
           'aria-selected': String(i === state.currentPage),
+          'data-page': String(i), // drop target for moving a card to this page
           onclick: () => switchPage(i),
         },
         p.name,
         h('span', { class: 'tab-count' }, String(p.feeds.length)),
       );
-      // Drop a feed card on a tab to move it to that page.
-      btn.addEventListener('dragover', (e) => {
-        if (dragFeedId) {
-          e.preventDefault();
-          btn.classList.add('drop');
-        }
-      });
-      btn.addEventListener('dragleave', () => btn.classList.remove('drop'));
-      btn.addEventListener('drop', (e) => {
-        e.preventDefault();
-        btn.classList.remove('drop');
-        if (dragFeedId) moveFeedToPage(dragFeedId, i);
-      });
       return btn;
     }),
     h('button', { class: 'tab tab-add', title: 'ページを追加', 'aria-label': 'ページを追加', onclick: addPage }, '＋'),
@@ -202,37 +191,55 @@ function buildCard(feed) {
     src: `https://www.google.com/s2/favicons?sz=32&domain=${encodeURIComponent(hostOf(site))}`,
   });
   favicon.addEventListener('error', () => favicon.remove());
-  const titleLink = h('a', { class: 'feed-title', href: site, target: target(), rel: 'noopener noreferrer' }, feed.title);
+  // The title is plain text so the whole header (except buttons) is a grip.
+  const title = h('span', { class: 'feed-title' }, feed.title);
+  const siteLink = h('a', { class: 'icon-btn', href: site, target: target(), rel: 'noopener noreferrer', title: 'サイトを開く', 'aria-label': 'サイトを開く', draggable: 'false' }, '↗');
+  const thumbBtn = h(
+    'button',
+    {
+      class: `icon-btn thumb-toggle${feed.hideThumbs ? ' off' : ''}`,
+      title: feed.hideThumbs ? 'サムネイルを表示する' : 'サムネイルを隠す',
+      'aria-label': 'サムネイルの表示切替',
+      'aria-pressed': String(!feed.hideThumbs),
+      onclick: () => toggleThumbs(feed.id),
+    },
+    '🖼️',
+  );
   const badge = h('span', { class: 'badge', hidden: true });
   const status = h('span', { class: 'feed-status' });
+  const stale = h('span', { class: 'feed-stale', hidden: true }, '💤');
   const head = h(
     'header',
-    { class: 'feed-head', draggable: 'true', title: 'ドラッグで並べ替え' },
+    { class: 'feed-head', title: 'ドラッグで並べ替え' },
     favicon,
-    titleLink,
+    title,
+    stale,
     badge,
     status,
     h(
       'div',
       { class: 'feed-actions' },
+      siteLink,
+      thumbBtn,
       h('button', { class: 'icon-btn', title: 'すべて既読にする', 'aria-label': 'すべて既読にする', onclick: () => markAllRead(feed.id) }, '✓'),
-      h('button', { class: 'icon-btn', title: '再読み込み', 'aria-label': '再読み込み', onclick: () => loadFeed(feed, true) }, '⟳'),
+      h('button', { class: 'icon-btn reload', title: '再読み込み', 'aria-label': '再読み込み', onclick: () => loadFeed(feed, true) }, '⟳'),
       h('button', { class: 'icon-btn', title: '編集', 'aria-label': '編集', onclick: () => openEditDialog(feed.id) }, '⋯'),
     ),
   );
   const list = h('ul', { class: 'items' }, h('li', { class: 'placeholder' }, '読み込み中…'));
   const el = h('article', { class: 'feed', 'data-id': feed.id }, head, list);
   setupDrag(head, el, feed.id);
-  const card = { el, list, badge, status, titleLink, feed };
+  const card = { el, list, badge, status, stale, siteLink, feed };
   cards.set(feed.id, card);
   return card;
 }
 
 function renderItems(card, data) {
   const { feed, list } = card;
-  const mode = state.settings.images;
-  const items = data.items.slice(0, feed.count);
+  const mode = feed.hideThumbs ? 'none' : state.settings.images;
+  const items = sortByDate(data.items).slice(0, feed.count);
   card.items = items;
+  markStale(card, items);
   if (items.length === 0) {
     list.replaceChildren(h('li', { class: 'placeholder' }, '記事がありません'));
     updateBadge(card);
@@ -282,6 +289,40 @@ function renderItems(card, data) {
     }),
   );
   updateBadge(card);
+}
+
+// Newest first. Some blogs pin old posts at the top of their RSS; undated
+// items keep their feed order after the dated ones.
+function sortByDate(items) {
+  const dated = items.filter((i) => i.date);
+  const undated = items.filter((i) => !i.date);
+  return [...dated.sort((a, b) => b.date - a.date), ...undated];
+}
+
+// Flag feeds whose newest item is old, so a dead site is noticeable.
+function markStale(card, items) {
+  const newest = Math.max(0, ...items.map((i) => i.date || 0));
+  const stale = newest > 0 && Date.now() - newest > STALE_MS;
+  card.el.classList.toggle('stale', stale);
+  card.stale.hidden = !stale;
+  if (stale) {
+    const d = new Date(newest);
+    card.stale.title = `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} から更新がありません`;
+  }
+}
+
+function toggleThumbs(feedId) {
+  const feed = currentPage().feeds.find((f) => f.id === feedId);
+  const card = cards.get(feedId);
+  if (!feed || !card) return;
+  feed.hideThumbs = !feed.hideThumbs;
+  persist();
+  const btn = card.el.querySelector('.thumb-toggle');
+  btn.classList.toggle('off', feed.hideThumbs);
+  btn.title = feed.hideThumbs ? 'サムネイルを表示する' : 'サムネイルを隠す';
+  btn.setAttribute('aria-pressed', String(!feed.hideThumbs));
+  const cached = store.getCachedFeed(feed.url);
+  if (cached) renderItems(card, cached.data);
 }
 
 function makeThumb(item) {
@@ -360,7 +401,7 @@ async function loadFeed(feed, fresh) {
     store.setCachedFeed(feed.url, data);
     if (data.siteUrl && data.siteUrl !== feed.siteUrl) {
       feed.siteUrl = data.siteUrl;
-      card.titleLink.href = data.siteUrl;
+      card.siteLink.href = data.siteUrl;
       persist();
     }
     if (cards.get(feed.id) === card) renderItems(card, data);
@@ -410,61 +451,152 @@ function hideTip() {
 
 // ---------------------------------------------------------------- drag & drop
 
-let dragFeedId = null;
+// Pointer-based dragging instead of HTML5 drag-and-drop. preventDefault() on
+// pointerdown suppresses the compatibility mouse events and native dragstart,
+// so mouse-gesture / super-drag extensions never see the grab.
+const DRAG_THRESHOLD = 5;
+const EDGE_SCROLL = 70;
+let drag = null;
 
 function setupDrag(handle, cardEl, feedId) {
-  handle.addEventListener('dragstart', (e) => {
-    dragFeedId = feedId;
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', feedId);
-    cardEl.classList.add('dragging');
-    hideTip();
-  });
-  handle.addEventListener('dragend', () => {
-    dragFeedId = null;
-    cardEl.classList.remove('dragging');
-    document.querySelectorAll('.drop-before, .drop-after').forEach((x) => x.classList.remove('drop-before', 'drop-after'));
-  });
-  cardEl.addEventListener('dragover', (e) => {
-    if (!dragFeedId || dragFeedId === feedId) return;
+  handle.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || e.pointerType === 'touch') return;
+    if (e.target.closest('button, a')) return;
     e.preventDefault();
     const r = cardEl.getBoundingClientRect();
-    const after = e.clientY > r.top + r.height / 2;
-    cardEl.classList.toggle('drop-after', after);
-    cardEl.classList.toggle('drop-before', !after);
+    drag = {
+      feedId,
+      cardEl,
+      handle,
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      x: e.clientX,
+      y: e.clientY,
+      offX: e.clientX - r.left,
+      offY: e.clientY - r.top,
+      width: r.width,
+      active: false,
+      ghost: null,
+      drop: null,
+      raf: 0,
+    };
+    handle.setPointerCapture(e.pointerId);
   });
-  cardEl.addEventListener('dragleave', () => cardEl.classList.remove('drop-before', 'drop-after'));
-  cardEl.addEventListener('drop', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const after = cardEl.classList.contains('drop-after');
-    cardEl.classList.remove('drop-before', 'drop-after');
-    if (dragFeedId && dragFeedId !== feedId) reorderFeed(dragFeedId, feedId, after);
+  handle.addEventListener('pointermove', (e) => {
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    drag.x = e.clientX;
+    drag.y = e.clientY;
+    if (!drag.active) {
+      if (Math.hypot(drag.x - drag.startX, drag.y - drag.startY) < DRAG_THRESHOLD) return;
+      beginDrag();
+    }
+    placeGhost();
+    updateDropTarget();
   });
+  handle.addEventListener('pointerup', (e) => {
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    finishDrag(true);
+  });
+  handle.addEventListener('pointercancel', () => finishDrag(false));
 }
 
-// Dropping on a column's empty space moves the card to the end of that column.
+// Columns carry data-col only when they map 1:1 to the page's columns.
 function setupColumnDrop(colEl, c, exact) {
-  if (!exact) return;
-  colEl.addEventListener('dragover', (e) => {
-    if (!dragFeedId || e.target !== colEl) return;
-    e.preventDefault();
-    colEl.classList.add('drop-col');
-  });
-  colEl.addEventListener('dragleave', () => colEl.classList.remove('drop-col'));
-  colEl.addEventListener('drop', (e) => {
-    colEl.classList.remove('drop-col');
-    if (!dragFeedId || e.target !== colEl) return;
-    e.preventDefault();
-    const feeds = currentPage().feeds;
-    const from = feeds.findIndex((f) => f.id === dragFeedId);
-    if (from < 0) return;
-    const [moving] = feeds.splice(from, 1);
-    moving.col = c;
-    feeds.push(moving);
-    persist();
-    renderBoard();
-  });
+  if (exact) colEl.dataset.col = String(c);
+}
+
+function beginDrag() {
+  drag.active = true;
+  hideTip();
+  const ghost = drag.cardEl.cloneNode(true);
+  ghost.classList.add('drag-ghost');
+  ghost.removeAttribute('data-id');
+  ghost.style.width = `${drag.width}px`;
+  document.body.append(ghost);
+  drag.ghost = ghost;
+  drag.cardEl.classList.add('dragging');
+  document.body.classList.add('is-dragging');
+  const tick = () => {
+    if (!drag || !drag.active) return;
+    // Scroll while the pointer rests near the top/bottom edge.
+    let dy = 0;
+    if (drag.y < EDGE_SCROLL) dy = -Math.ceil((EDGE_SCROLL - drag.y) / 4);
+    else if (drag.y > window.innerHeight - EDGE_SCROLL) dy = Math.ceil((drag.y - (window.innerHeight - EDGE_SCROLL)) / 4);
+    if (dy) {
+      window.scrollBy(0, dy);
+      updateDropTarget();
+    }
+    drag.raf = requestAnimationFrame(tick);
+  };
+  drag.raf = requestAnimationFrame(tick);
+}
+
+function placeGhost() {
+  drag.ghost.style.left = `${drag.x - drag.offX}px`;
+  drag.ghost.style.top = `${drag.y - Math.min(drag.offY, 40)}px`;
+}
+
+function clearDropMarks() {
+  document.querySelectorAll('.drop-before, .drop-after, .drop-col, .tab.drop').forEach((x) => x.classList.remove('drop-before', 'drop-after', 'drop-col', 'drop'));
+}
+
+function updateDropTarget() {
+  clearDropMarks();
+  drag.drop = null;
+  const el = document.elementFromPoint(drag.x, drag.y);
+  if (!el) return;
+  const tab = el.closest('.tab[data-page]');
+  if (tab) {
+    const page = Number(tab.dataset.page);
+    if (page !== state.currentPage) {
+      tab.classList.add('drop');
+      drag.drop = { type: 'tab', page };
+    }
+    return;
+  }
+  const card = el.closest('.feed[data-id]');
+  if (card) {
+    if (card === drag.cardEl) return;
+    const r = card.getBoundingClientRect();
+    const after = drag.y > r.top + r.height / 2;
+    card.classList.add(after ? 'drop-after' : 'drop-before');
+    drag.drop = { type: 'card', id: card.dataset.id, after };
+    return;
+  }
+  const col = el.closest('.col[data-col]');
+  if (col) {
+    col.classList.add('drop-col');
+    drag.drop = { type: 'col', col: Number(col.dataset.col) };
+  }
+}
+
+function finishDrag(commit) {
+  if (!drag) return;
+  const d = drag;
+  drag = null;
+  cancelAnimationFrame(d.raf);
+  if (d.handle.hasPointerCapture(d.pointerId)) d.handle.releasePointerCapture(d.pointerId);
+  if (!d.active) return;
+  d.ghost.remove();
+  d.cardEl.classList.remove('dragging');
+  document.body.classList.remove('is-dragging');
+  clearDropMarks();
+  if (!commit || !d.drop) return;
+  if (d.drop.type === 'card') reorderFeed(d.feedId, d.drop.id, d.drop.after);
+  else if (d.drop.type === 'col') moveToColumn(d.feedId, d.drop.col);
+  else if (d.drop.type === 'tab') moveFeedToPage(d.feedId, d.drop.page);
+}
+
+function moveToColumn(feedId, c) {
+  const feeds = currentPage().feeds;
+  const from = feeds.findIndex((f) => f.id === feedId);
+  if (from < 0) return;
+  const [moving] = feeds.splice(from, 1);
+  moving.col = c;
+  feeds.push(moving);
+  persist();
+  renderBoard();
 }
 
 function reorderFeed(movingId, targetId, after) {
@@ -607,6 +739,7 @@ function openEditDialog(feedId) {
   const count = countSelect(feed.count);
   const pageSel = pageSelect(state.currentPage);
   const colSel = h('select', {}, ...Array.from({ length: page.columns }, (_, i) => h('option', { value: String(i), selected: i === feed.col }, `${i + 1}列目`)));
+  const thumbsCheck = h('input', { type: 'checkbox', checked: feed.hideThumbs });
   const sameCol = page.feeds.filter((f) => f.col === feed.col);
   const posInCol = sameCol.indexOf(feed);
   // Swap with the neighbour in the same column.
@@ -627,6 +760,7 @@ function openEditDialog(feedId) {
     field('名前', title),
     field('RSSのURL', url),
     h('div', { class: 'grid2' }, field('表示件数', count), field('ページ', pageSel), field('列', colSel)),
+    h('label', { class: 'check' }, thumbsCheck, 'このフィードのサムネイルを隠す'),
     h(
       'div',
       { class: 'row' },
@@ -655,6 +789,7 @@ function openEditDialog(feedId) {
     feed.title = title.value.trim() || feed.title;
     feed.url = newUrl;
     feed.count = Number(count.value);
+    feed.hideThumbs = thumbsCheck.checked;
     if (urlChanged) feed.siteUrl = '';
     const newCol = Number(colSel.value);
     if (newCol !== feed.col) {
@@ -703,6 +838,7 @@ function openSettings() {
         sel(s.refreshMin, [[15, '15分'], [30, '30分'], [45, '45分'], [60, '60分'], [0, '更新しない']], (v) => ((s.refreshMin = Number(v)), persist(), scheduleRefresh())),
       ),
     ),
+    h('p', { class: 'muted small' }, 'フィードごとの表示・非表示は、各フィードの見出しにある 🖼 で切り替えられます。'),
     check(s.ogThumbs, 'RSSに画像が無い記事は、記事ページからサムネイルを取得する', (v) => ((s.ogThumbs = v), persist(), renderBoard())),
     check(s.newTab, 'リンクを新しいタブで開く', (v) => ((s.newTab = v), persist(), renderBoard())),
   );
@@ -878,6 +1014,7 @@ function openSettings() {
       sel(w.search, Object.entries(SEARCH_ENGINES).map(([k, e]) => [k, e.label]), (v) => ((w.search = v), persist(), renderWidgets())),
     ),
     check(w.weather, '天気予報', (v) => ((w.weather = v), persist(), renderWidgets())),
+    field('天気の表示日数', sel(w.weatherDays, [[3, '3日間'], [7, '7日間']], (v) => ((w.weatherDays = Number(v)), persist(), renderWidgets()))),
     field('天気の地点', placeForm),
     placeResults,
     check(w.memo, 'メモ帳（端末ごとに保存）', (v) => ((w.memo = v), persist(), renderWidgets())),
@@ -1076,6 +1213,10 @@ function init() {
   $('#btn-widgets').addEventListener('click', () => {
     const now = $('#widgets').classList.toggle('collapsed');
     store.saveWidgetsCollapsed(now);
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && drag) finishDrag(false);
   });
 
   let resizeTimer = null;
