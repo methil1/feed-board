@@ -81,6 +81,12 @@ in `mirror.json`. The *Mirror feeds* workflow fetches them every 30 minutes with
 listed there from GitHub instead of the proxy. A feed that fails on one run
 keeps its previous copy.
 
+Feeds that list only a few items (livedoor blogs often carry 15) go under
+`archive` in `mirror.json`. Each run parses them and merges the items into
+`<hash>.json` on the `mirror` branch (newest 60 kept). The page still loads
+these feeds live through the proxy and appends archived items the live feed no
+longer lists, so a card can show up to 30 items.
+
 ## Proxy API
 
 | Endpoint | Returns |

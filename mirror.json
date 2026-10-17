@@ -1,6 +1,11 @@
 {
-  "_comment": "Feeds the Cloudflare proxy cannot reach (the site blocks Cloudflare IPs). GitHub Actions fetches them every 30 minutes into the `mirror` branch; the page reads them from there.",
+  "_comment": "feeds: sites that block the Cloudflare proxy; the page reads them from the `mirror` branch instead. archive: feeds that list only a few items; their items are collected here so the page can show more. GitHub Actions updates both every 30 minutes.",
   "feeds": [
     "http://yaraon-blog.com/feed"
+  ],
+  "archive": [
+    "https://itainews.com/index.rdf",
+    "https://news23vip.livedoor.blog/index.rdf",
+    "https://goldennews.blog.jp/index.rdf"
   ]
 }

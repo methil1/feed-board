@@ -1,7 +1,7 @@
 // Fetching (through the proxy, or the GitHub mirror for sites that block it)
 // and parsing RSS 1.0 / RSS 2.0 / Atom.
 
-import { MIRROR_BASE } from './config.js?v=202610171907';
+import { MIRROR_BASE } from './config.js?v=202610172012';
 
 export class FeedError extends Error {}
 
@@ -17,7 +17,8 @@ export function safeHttpUrl(raw, base) {
 
 const MIRROR_INDEX_TTL = 10 * 60 * 1000;
 const MIRROR_FILE = /^[0-9a-f]{12}\.xml$/;
-let mirrorIndex = { at: 0, feeds: {}, pending: null };
+const ARCHIVE_FILE = /^[0-9a-f]{12}\.json$/;
+let mirrorIndex = { at: 0, feeds: {}, archives: {}, pending: null };
 
 // The mirror's index.json, shared by every feed loading at the same time.
 async function mirrorEntry(url) {
@@ -27,12 +28,39 @@ async function mirrorEntry(url) {
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (data && data.feeds && typeof data.feeds === 'object') mirrorIndex.feeds = data.feeds;
+        if (data && data.archives && typeof data.archives === 'object') mirrorIndex.archives = data.archives;
       })
       .catch(() => {});
   }
   await mirrorIndex.pending;
   const entry = Object.hasOwn(mirrorIndex.feeds, url) ? mirrorIndex.feeds[url] : null;
   return entry && MIRROR_FILE.test(entry.file) ? entry : null;
+}
+
+// Items collected over time by the mirror job for feeds that list only a few
+// (see "archive" in mirror.json). Missing or broken archives just add nothing.
+async function archivedItems(url, fresh) {
+  await mirrorEntry(url); // loads the index
+  const entry = Object.hasOwn(mirrorIndex.archives, url) ? mirrorIndex.archives[url] : null;
+  if (!entry || !ARCHIVE_FILE.test(entry.file)) return [];
+  try {
+    const res = await fetch(`${MIRROR_BASE}${entry.file}${fresh ? `?t=${Date.now()}` : ''}`, { cache: fresh ? 'no-cache' : 'default' });
+    if (!res.ok) return [];
+    const data = await res.json();
+    if (!data || !Array.isArray(data.items)) return [];
+    return data.items
+      .filter((i) => i && typeof i === 'object')
+      .map((i) => ({
+        title: String(i.title || ''),
+        link: safeHttpUrl(i.link),
+        date: Number.isFinite(i.date) ? i.date : 0,
+        excerpt: String(i.excerpt || ''),
+        image: safeHttpUrl(i.image),
+      }))
+      .filter((i) => i.link);
+  } catch {
+    return [];
+  }
 }
 
 async function fetchMirror(entry, url, fresh) {
@@ -186,10 +214,13 @@ function discoverFeeds(html, baseUrl) {
 
 // Fetch and parse a feed. Throws FeedError when the URL is not a feed.
 export async function fetchFeed(proxy, url, { fresh = false } = {}) {
-  const { text, finalUrl } = await fetchRaw(proxy, url, fresh);
+  const [{ text, finalUrl }, archived] = await Promise.all([fetchRaw(proxy, url, fresh), archivedItems(url, fresh)]);
   const parsed = parseXmlFeed(text, finalUrl);
   if (!parsed) throw new FeedError('RSS/Atomとして読めませんでした');
   parsed.items = parsed.items.filter((i) => i.link || i.title);
+  // Live items first (fresher titles), then archived ones the feed no longer lists.
+  const seen = new Set(parsed.items.map((i) => i.link));
+  for (const i of archived) if (!seen.has(i.link)) parsed.items.push(i);
   return parsed;
 }
 

@@ -1,7 +1,7 @@
 // Persistent state (localStorage). Every access is guarded: storage can be
 // unavailable (private mode, blocked site data) and the app must still run.
 
-import { DEFAULT_PROXY } from './config.js?v=202610171907';
+import { DEFAULT_PROXY } from './config.js?v=202610172012';
 
 const KEYS = {
   state: 'fb.state.v1',

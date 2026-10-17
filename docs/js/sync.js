@@ -5,7 +5,7 @@
 // Pages/feeds/settings and the memo are last-writer-wins by their timestamp;
 // read marks are merged (union). The key lives only in this device's storage.
 
-import * as store from './store.js?v=202610171907';
+import * as store from './store.js?v=202610172012';
 
 const PUSH_DELAY_MS = 5000;
 const MIN_PUSH_GAP_MS = 20000;
