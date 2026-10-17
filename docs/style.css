@@ -256,8 +256,29 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
 .feed.stale .items { opacity: 0.6; }
 .feed-actions { display: flex; flex: none; }
 .feed.loading .feed-actions .reload { animation: spin 0.9s linear infinite; }
-.feed-actions a.icon-btn { display: inline-grid; place-items: center; }
-.thumb-toggle.off { opacity: 0.3 !important; text-decoration: line-through; }
+.menu {
+  position: fixed;
+  z-index: 40;
+  min-width: 180px;
+  padding: 4px;
+  background: var(--card-bg);
+  color: var(--card-fg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.22);
+}
+.menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.menu-item:hover, .menu-item:focus-visible { background: var(--hover); outline: none; }
+.menu-sep { height: 1px; background: var(--border); margin: 4px 6px; }
 
 .drag-ghost {
   position: fixed;

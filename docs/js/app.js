@@ -128,6 +128,7 @@ let renderedCols = 0;
 function renderBoard() {
   const page = currentPage();
   const board = $('#board');
+  closeFeedMenu();
   cards.clear();
   ogObserver.disconnect();
   const n = effectiveColumns(page.columns);
@@ -193,18 +194,6 @@ function buildCard(feed) {
   favicon.addEventListener('error', () => favicon.remove());
   // The title is plain text so the whole header (except buttons) is a grip.
   const title = h('span', { class: 'feed-title' }, feed.title);
-  const siteLink = h('a', { class: 'icon-btn', href: site, target: target(), rel: 'noopener noreferrer', title: 'サイトを開く', 'aria-label': 'サイトを開く', draggable: 'false' }, '↗');
-  const thumbBtn = h(
-    'button',
-    {
-      class: `icon-btn thumb-toggle${feed.hideThumbs ? ' off' : ''}`,
-      title: feed.hideThumbs ? 'サムネイルを表示する' : 'サムネイルを隠す',
-      'aria-label': 'サムネイルの表示切替',
-      'aria-pressed': String(!feed.hideThumbs),
-      onclick: () => toggleThumbs(feed.id),
-    },
-    '🖼️',
-  );
   const badge = h('span', { class: 'badge', hidden: true });
   const status = h('span', { class: 'feed-status' });
   const stale = h('span', { class: 'feed-stale', hidden: true }, '💤');
@@ -219,17 +208,15 @@ function buildCard(feed) {
     h(
       'div',
       { class: 'feed-actions' },
-      siteLink,
-      thumbBtn,
       h('button', { class: 'icon-btn', title: 'すべて既読にする', 'aria-label': 'すべて既読にする', onclick: () => markAllRead(feed.id) }, '✓'),
       h('button', { class: 'icon-btn reload', title: '再読み込み', 'aria-label': '再読み込み', onclick: () => loadFeed(feed, true) }, '⟳'),
-      h('button', { class: 'icon-btn', title: '編集', 'aria-label': '編集', onclick: () => openEditDialog(feed.id) }, '⋯'),
+      h('button', { class: 'icon-btn', title: 'メニュー', 'aria-label': 'メニュー', 'aria-haspopup': 'menu', onclick: (e) => openFeedMenu(e.currentTarget, feed.id) }, '⋯'),
     ),
   );
   const list = h('ul', { class: 'items' }, h('li', { class: 'placeholder' }, '読み込み中…'));
   const el = h('article', { class: 'feed', 'data-id': feed.id }, head, list);
   setupDrag(head, el, feed.id);
-  const card = { el, list, badge, status, stale, siteLink, feed };
+  const card = { el, list, badge, status, stale, feed };
   cards.set(feed.id, card);
   return card;
 }
@@ -299,6 +286,54 @@ function sortByDate(items) {
   return [...dated.sort((a, b) => b.date - a.date), ...undated];
 }
 
+// ---------------------------------------------------------------- feed menu
+
+let openMenu = null;
+
+function closeFeedMenu() {
+  if (!openMenu) return;
+  openMenu.el.remove();
+  openMenu.anchor.setAttribute('aria-expanded', 'false');
+  openMenu = null;
+}
+
+function openFeedMenu(anchor, feedId) {
+  const wasOpen = openMenu && openMenu.anchor === anchor;
+  closeFeedMenu();
+  if (wasOpen) return;
+  const feed = currentPage().feeds.find((f) => f.id === feedId);
+  if (!feed) return;
+  const item = (label, onclick) =>
+    h(
+      'button',
+      {
+        class: 'menu-item',
+        role: 'menuitem',
+        onclick: () => {
+          closeFeedMenu();
+          onclick();
+        },
+      },
+      label,
+    );
+  const el = h(
+    'div',
+    { class: 'menu', role: 'menu' },
+    item(feed.hideThumbs ? 'サムネイルを表示する' : 'サムネイルを隠す', () => toggleThumbs(feedId)),
+    item('サイトを開く', () => window.open(feed.siteUrl || originOf(feed.url), target(), 'noopener')),
+    h('div', { class: 'menu-sep', role: 'separator' }),
+    item('編集…', () => openEditDialog(feedId)),
+  );
+  document.body.append(el);
+  const r = anchor.getBoundingClientRect();
+  const w = el.offsetWidth;
+  el.style.top = `${r.bottom + 4}px`;
+  el.style.left = `${Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8))}px`;
+  anchor.setAttribute('aria-expanded', 'true');
+  openMenu = { el, anchor };
+  el.querySelector('.menu-item').focus();
+}
+
 // Flag feeds whose newest item is old, so a dead site is noticeable.
 function markStale(card, items) {
   const newest = Math.max(0, ...items.map((i) => i.date || 0));
@@ -317,10 +352,6 @@ function toggleThumbs(feedId) {
   if (!feed || !card) return;
   feed.hideThumbs = !feed.hideThumbs;
   persist();
-  const btn = card.el.querySelector('.thumb-toggle');
-  btn.classList.toggle('off', feed.hideThumbs);
-  btn.title = feed.hideThumbs ? 'サムネイルを表示する' : 'サムネイルを隠す';
-  btn.setAttribute('aria-pressed', String(!feed.hideThumbs));
   const cached = store.getCachedFeed(feed.url);
   if (cached) renderItems(card, cached.data);
 }
@@ -401,7 +432,6 @@ async function loadFeed(feed, fresh) {
     store.setCachedFeed(feed.url, data);
     if (data.siteUrl && data.siteUrl !== feed.siteUrl) {
       feed.siteUrl = data.siteUrl;
-      card.siteLink.href = data.siteUrl;
       persist();
     }
     if (cards.get(feed.id) === card) renderItems(card, data);
@@ -838,7 +868,7 @@ function openSettings() {
         sel(s.refreshMin, [[15, '15分'], [30, '30分'], [45, '45分'], [60, '60分'], [0, '更新しない']], (v) => ((s.refreshMin = Number(v)), persist(), scheduleRefresh())),
       ),
     ),
-    h('p', { class: 'muted small' }, 'フィードごとの表示・非表示は、各フィードの見出しにある 🖼 で切り替えられます。'),
+    h('p', { class: 'muted small' }, 'フィードごとの表示・非表示は、各フィードの見出しの「⋯」メニューで切り替えられます。'),
     check(s.ogThumbs, 'RSSに画像が無い記事は、記事ページからサムネイルを取得する', (v) => ((s.ogThumbs = v), persist(), renderBoard())),
     check(s.newTab, 'リンクを新しいタブで開く', (v) => ((s.newTab = v), persist(), renderBoard())),
   );
@@ -1217,7 +1247,14 @@ function init() {
 
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && drag) finishDrag(false);
+    if (e.key === 'Escape') closeFeedMenu();
   });
+  // Close the feed menu on any outside click or scroll.
+  document.addEventListener('pointerdown', (e) => {
+    if (openMenu && !openMenu.el.contains(e.target) && !openMenu.anchor.contains(e.target)) closeFeedMenu();
+  });
+  window.addEventListener('scroll', closeFeedMenu, { passive: true });
+  window.addEventListener('resize', closeFeedMenu);
 
   let resizeTimer = null;
   window.addEventListener('resize', () => {
