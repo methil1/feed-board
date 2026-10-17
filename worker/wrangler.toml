@@ -1,0 +1,7 @@
+name = "feed-board-proxy"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+[vars]
+# Comma-separated list of origins allowed to use the proxy.
+ALLOWED_ORIGINS = "https://methil1.github.io"
