@@ -1,7 +1,7 @@
 // Persistent state (localStorage). Every access is guarded: storage can be
 // unavailable (private mode, blocked site data) and the app must still run.
 
-import { DEFAULT_PROXY } from './config.js?v=202610171527';
+import { DEFAULT_PROXY } from './config.js?v=202610171826';
 
 const KEYS = {
   state: 'fb.state.v1',
@@ -36,7 +36,11 @@ function save(key, value) {
   }
 }
 
-const feed = (title, url, count = 8) => ({ id: uid(), title, url, count });
+const feed = (title, url, col, count = 8) => ({ id: uid(), title, url, count, col });
+
+// Default column for the i-th of n feeds when none is stored: fill the first
+// column top to bottom, then the next, so the reading order runs down columns.
+export const stackedCol = (i, n, columns) => Math.min(columns - 1, Math.floor((i * columns) / Math.max(n, 1)));
 
 export function defaultState() {
   return {
@@ -45,27 +49,22 @@ export function defaultState() {
     pages: [
       {
         id: uid(),
-        name: 'ニュース・IT',
+        name: 'ホーム',
         columns: 3,
         feeds: [
-          feed('Yahoo!ニュース 主要', 'https://news.yahoo.co.jp/rss/topics/top-picks.xml'),
-          feed('ITmedia NEWS', 'https://rss.itmedia.co.jp/rss/2.0/news_bursts.xml'),
-          feed('GIGAZINE', 'https://gigazine.net/news/rss_2.0/'),
-          feed('Publickey', 'https://www.publickey1.jp/atom.xml'),
-          feed('窓の杜', 'https://forest.watch.impress.co.jp/data/rss/1.0/wf/feed.rdf'),
-        ],
-      },
-      {
-        id: uid(),
-        name: 'まとめ',
-        columns: 3,
-        feeds: [
-          feed('痛いニュース(ﾉ∀`)', 'http://blog.livedoor.jp/dqnplus/index.rdf'),
-          feed('ハムスター速報', 'http://hamusoku.com/index.rdf'),
-          feed('VIPPER速報', 'http://vippers.jp/index.rdf'),
-          feed('アルファルファモザイク', 'https://alfalfalfa.com/index.rdf'),
-          feed('哲学ニュースnwk', 'http://blog.livedoor.jp/nwknews/index.rdf'),
-          feed('ニュー速クオリティ', 'http://news4vip.livedoor.biz/index.rdf'),
+          feed('GIGAZINE', 'https://gigazine.net/news/rss_2.0/', 0),
+          feed('4Gamer.net', 'https://www.4gamer.net/rss/index.xml', 0),
+          feed('Yahoo!ニュース 主要', 'https://news.yahoo.co.jp/rss/topics/top-picks.xml', 0),
+          feed('ITmedia NEWS', 'https://rss.itmedia.co.jp/rss/2.0/news_bursts.xml', 0),
+          feed('INTERNET Watch', 'https://internet.watch.impress.co.jp/data/rss/1.0/iw/feed.rdf', 0),
+          feed('ライフハッカー・ジャパン', 'https://www.lifehacker.jp/feed/index.xml', 0),
+          feed('痛いニュース(ﾉ∀`)', 'https://itainews.com/index.rdf', 1),
+          feed('キニ速', 'http://blog.livedoor.jp/kinisoku/index.rdf', 1),
+          feed('VIPPERな俺', 'https://news23vip.livedoor.blog/index.rdf', 1),
+          feed('もみあげチャ～シュ～', 'https://michaelsan.livedoor.biz/index.rdf', 1),
+          feed('ゴールデンタイムズ', 'https://goldennews.blog.jp/index.rdf', 2),
+          feed('やらおん！', 'http://yaraon-blog.com/feed', 2),
+          feed('オレ的ゲーム速報＠刃', 'https://jin115.com/index.rdf', 2),
         ],
       },
     ],
@@ -108,13 +107,13 @@ export function normalizeState(s) {
       columns,
       feeds: (Array.isArray(p.feeds) ? p.feeds : [])
         .filter((f) => f && typeof f.url === 'string')
-        .map((f, i) => ({
+        .map((f, i, all) => ({
           id: f.id || uid(),
           title: String(f.title || f.url),
           url: f.url,
           count: clampInt(f.count, 1, 30, 8),
           siteUrl: f.siteUrl || '',
-          col: clampInt(f.col, 0, columns - 1, i % columns),
+          col: clampInt(f.col, 0, columns - 1, stackedCol(i, all.length, columns)),
           hideThumbs: Boolean(f.hideThumbs),
           collapsed: Boolean(f.collapsed),
         })),

@@ -1,5 +1,5 @@
-import { h } from './dom.js?v=202610171527';
-import { loadMemo, saveMemo } from './store.js?v=202610171527';
+import { h } from './dom.js?v=202610171826';
+import { loadMemo, saveMemo } from './store.js?v=202610171826';
 
 export const SEARCH_ENGINES = {
   google: { label: 'Google', url: 'https://www.google.com/search?q=' },

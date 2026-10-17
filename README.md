@@ -12,7 +12,8 @@ and a few widgets (clock + search, weather, memo).
 ## Features
 
 - Pages (tabs) with 1–6 columns; drag a card by its header to reorder, drop it
-  on a tab to move it to another page. Phones collapse to one column.
+  on a tab to move it to another page. Feeds read down each column, left to
+  right; narrower screens (phones: one column) keep that order.
 - Add a feed by RSS URL **or** a site URL (RSS is auto-discovered).
 - Thumbnails from the feed, falling back to the article's og:image.
 - Hover an item for its excerpt. Read items are dimmed; per-feed unread badge.

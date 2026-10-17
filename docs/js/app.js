@@ -1,7 +1,7 @@
-import { h, relTime, download, pickFile, toast } from './dom.js?v=202610171527';
-import { fetchFeed, resolveInput, fetchOgImage, safeHttpUrl, FeedError } from './feed.js?v=202610171527';
-import * as store from './store.js?v=202610171527';
-import { clockWidget, weatherWidget, memoWidget, searchPlace, SEARCH_ENGINES } from './widgets.js?v=202610171527';
+import { h, relTime, download, pickFile, toast } from './dom.js?v=202610171826';
+import { fetchFeed, resolveInput, fetchOgImage, safeHttpUrl, FeedError } from './feed.js?v=202610171826';
+import * as store from './store.js?v=202610171826';
+import { clockWidget, weatherWidget, memoWidget, searchPlace, SEARCH_ENGINES } from './widgets.js?v=202610171826';
 
 const MAX_CONCURRENT_FEEDS = 6;
 const MAX_CONCURRENT_OG = 4;
@@ -163,16 +163,15 @@ function renderBoard() {
 }
 
 // Split feeds into columns by their `col`. When the screen is too narrow for
-// the page's column count, read the full layout row by row and re-flow it.
+// the page's column count, read the full layout column by column (left column
+// top to bottom, then the next) and re-flow it into n columns the same way.
 function layout(page, n) {
   const full = Array.from({ length: page.columns }, () => []);
   for (const f of page.feeds) full[Math.min(f.col || 0, page.columns - 1)].push(f);
   if (n >= page.columns) return full;
-  const flat = [];
-  const rows = Math.max(0, ...full.map((c) => c.length));
-  for (let r = 0; r < rows; r++) for (const c of full) if (c[r]) flat.push(c[r]);
+  const flat = full.flat();
   const out = Array.from({ length: n }, () => []);
-  flat.forEach((f, i) => out[i % n].push(f));
+  flat.forEach((f, i) => out[store.stackedCol(i, flat.length, n)].push(f));
   return out;
 }
 
@@ -964,7 +963,7 @@ function openSettings() {
           name,
           sel(p.columns, [1, 2, 3, 4, 5, 6].map((n) => [n, `${n}列`]), (v) => {
             p.columns = Number(v);
-            for (const f of p.feeds) if (f.col >= p.columns) f.col = f.col % p.columns;
+            for (const f of p.feeds) if (f.col >= p.columns) f.col = p.columns - 1;
             persist();
             if (i === state.currentPage) renderBoard();
           }),
@@ -1183,7 +1182,7 @@ async function importOpml() {
     }
     const feeds = Array.from(o.querySelectorAll('outline[xmlUrl]')).map(toFeed).filter(Boolean);
     if (feeds.length === 0) continue;
-    feeds.forEach((f, i) => (f.col = i % 3));
+    feeds.forEach((f, i) => (f.col = store.stackedCol(i, feeds.length, 3)));
     state.pages.push({ id: store.uid(), name: o.getAttribute('title') || o.getAttribute('text') || 'インポート', columns: 3, feeds });
     added += feeds.length;
   }
