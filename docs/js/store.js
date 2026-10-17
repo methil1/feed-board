@@ -1,7 +1,7 @@
 // Persistent state (localStorage). Every access is guarded: storage can be
 // unavailable (private mode, blocked site data) and the app must still run.
 
-import { DEFAULT_PROXY } from './config.js?v=202610171833';
+import { DEFAULT_PROXY } from './config.js?v=202610171844';
 
 const KEYS = {
   state: 'fb.state.v1',
@@ -114,7 +114,9 @@ export function normalizeState(s) {
           count: clampInt(f.count, 1, 30, 8),
           siteUrl: f.siteUrl || '',
           col: clampInt(f.col, 0, columns - 1, stackedCol(i, all.length, columns)),
-          hideThumbs: Boolean(f.hideThumbs),
+          // Off unless turned on per feed. The old hideThumbs flag is dropped,
+          // so feeds saved before this change start hidden too.
+          showThumbs: f.showThumbs === true,
           collapsed: Boolean(f.collapsed),
         })),
     };

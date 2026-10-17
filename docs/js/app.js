@@ -1,7 +1,7 @@
-import { h, relTime, download, pickFile, toast } from './dom.js?v=202610171833';
-import { fetchFeed, resolveInput, fetchOgImage, safeHttpUrl, FeedError } from './feed.js?v=202610171833';
-import * as store from './store.js?v=202610171833';
-import { clockWidget, weatherWidget, memoWidget, searchPlace, SEARCH_ENGINES } from './widgets.js?v=202610171833';
+import { h, relTime, download, pickFile, toast } from './dom.js?v=202610171844';
+import { fetchFeed, resolveInput, fetchOgImage, safeHttpUrl, FeedError } from './feed.js?v=202610171844';
+import * as store from './store.js?v=202610171844';
+import { clockWidget, weatherWidget, memoWidget, searchPlace, SEARCH_ENGINES } from './widgets.js?v=202610171844';
 
 const MAX_CONCURRENT_FEEDS = 6;
 const MAX_CONCURRENT_OG = 4;
@@ -128,7 +128,6 @@ let renderedCols = 0;
 function renderBoard() {
   const page = currentPage();
   const board = $('#board');
-  closeFeedMenu();
   cards.clear();
   ogObserver.disconnect();
   const n = effectiveColumns(page.columns);
@@ -209,7 +208,7 @@ function buildCard(feed) {
       { class: 'feed-actions' },
       h('button', { class: 'icon-btn', title: 'すべて既読にする', 'aria-label': 'すべて既読にする', onclick: () => markAllRead(feed.id) }, '✓'),
       h('button', { class: 'icon-btn reload', title: '再読み込み', 'aria-label': '再読み込み', onclick: () => loadFeed(feed, true) }, '⟳'),
-      h('button', { class: 'icon-btn', title: 'メニュー', 'aria-label': 'メニュー', 'aria-haspopup': 'menu', onclick: (e) => openFeedMenu(e.currentTarget, feed.id) }, '⋯'),
+      h('button', { class: 'icon-btn', title: '編集', 'aria-label': '編集', 'aria-haspopup': 'dialog', onclick: () => openEditDialog(feed.id) }, '⋯'),
       h(
         'button',
         {
@@ -233,7 +232,7 @@ function buildCard(feed) {
 
 function renderItems(card, data) {
   const { feed, list } = card;
-  const mode = feed.hideThumbs ? 'none' : state.settings.images;
+  const mode = feed.showThumbs ? state.settings.images : 'none';
   const items = sortByDate(data.items).slice(0, feed.count);
   card.items = items;
   markStale(card, items);
@@ -296,54 +295,6 @@ function sortByDate(items) {
   return [...dated.sort((a, b) => b.date - a.date), ...undated];
 }
 
-// ---------------------------------------------------------------- feed menu
-
-let openMenu = null;
-
-function closeFeedMenu() {
-  if (!openMenu) return;
-  openMenu.el.remove();
-  openMenu.anchor.setAttribute('aria-expanded', 'false');
-  openMenu = null;
-}
-
-function openFeedMenu(anchor, feedId) {
-  const wasOpen = openMenu && openMenu.anchor === anchor;
-  closeFeedMenu();
-  if (wasOpen) return;
-  const feed = currentPage().feeds.find((f) => f.id === feedId);
-  if (!feed) return;
-  const item = (label, onclick) =>
-    h(
-      'button',
-      {
-        class: 'menu-item',
-        role: 'menuitem',
-        onclick: () => {
-          closeFeedMenu();
-          onclick();
-        },
-      },
-      label,
-    );
-  const el = h(
-    'div',
-    { class: 'menu', role: 'menu' },
-    item(feed.hideThumbs ? 'サムネイルを表示する' : 'サムネイルを隠す', () => toggleThumbs(feedId)),
-    item('サイトを開く', () => window.open(feed.siteUrl || originOf(feed.url), target(), 'noopener')),
-    h('div', { class: 'menu-sep', role: 'separator' }),
-    item('編集…', () => openEditDialog(feedId)),
-  );
-  document.body.append(el);
-  const r = anchor.getBoundingClientRect();
-  const w = el.offsetWidth;
-  el.style.top = `${r.bottom + 4}px`;
-  el.style.left = `${Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8))}px`;
-  anchor.setAttribute('aria-expanded', 'true');
-  openMenu = { el, anchor };
-  el.querySelector('.menu-item').focus();
-}
-
 // Flag feeds whose newest item is old, so a dead site is noticeable.
 function markStale(card, items) {
   const newest = Math.max(0, ...items.map((i) => i.date || 0));
@@ -368,16 +319,6 @@ function toggleCollapse(feedId) {
   btn.title = label;
   btn.setAttribute('aria-label', label);
   btn.setAttribute('aria-expanded', String(!feed.collapsed));
-}
-
-function toggleThumbs(feedId) {
-  const feed = currentPage().feeds.find((f) => f.id === feedId);
-  const card = cards.get(feedId);
-  if (!feed || !card) return;
-  feed.hideThumbs = !feed.hideThumbs;
-  persist();
-  const cached = store.getCachedFeed(feed.url);
-  if (cached) renderItems(card, cached.data);
 }
 
 function makeThumb(item) {
@@ -793,7 +734,8 @@ function openEditDialog(feedId) {
   const count = countSelect(feed.count);
   const pageSel = pageSelect(state.currentPage);
   const colSel = h('select', {}, ...Array.from({ length: page.columns }, (_, i) => h('option', { value: String(i), selected: i === feed.col }, `${i + 1}列目`)));
-  const thumbsCheck = h('input', { type: 'checkbox', checked: feed.hideThumbs });
+  const thumbsCheck = h('input', { type: 'checkbox', checked: feed.showThumbs });
+  const siteLink = h('a', { class: 'btn', href: feed.siteUrl || originOf(feed.url), target: '_blank', rel: 'noopener noreferrer' }, 'サイトを開く ↗');
   const sameCol = page.feeds.filter((f) => f.col === feed.col);
   const posInCol = sameCol.indexOf(feed);
   // Swap with the neighbour in the same column.
@@ -814,12 +756,14 @@ function openEditDialog(feedId) {
     field('名前', title),
     field('RSSのURL', url),
     h('div', { class: 'grid2' }, field('表示件数', count), field('ページ', pageSel), field('列', colSel)),
-    h('label', { class: 'check' }, thumbsCheck, 'このフィードのサムネイルを隠す'),
+    h('label', { class: 'check' }, thumbsCheck, 'このフィードのサムネイルを表示する'),
     h(
       'div',
       { class: 'row' },
       h('button', { class: 'btn', onclick: () => move(-1), disabled: posInCol <= 0 }, '▲ 上へ'),
       h('button', { class: 'btn', onclick: () => move(1), disabled: posInCol >= sameCol.length - 1 }, '下へ ▼'),
+      h('span', { class: 'spacer' }),
+      siteLink,
     ),
   );
   const del = h('button', { class: 'btn danger' }, '削除');
@@ -843,7 +787,7 @@ function openEditDialog(feedId) {
     feed.title = title.value.trim() || feed.title;
     feed.url = newUrl;
     feed.count = Number(count.value);
-    feed.hideThumbs = thumbsCheck.checked;
+    feed.showThumbs = thumbsCheck.checked;
     if (urlChanged) feed.siteUrl = '';
     const newCol = Number(colSel.value);
     if (newCol !== feed.col) {
@@ -886,13 +830,13 @@ function openSettings() {
       { class: 'grid2' },
       field('テーマ', sel(s.theme, [['system', '端末に合わせる'], ['light', 'ライト'], ['dark', 'ダーク']], (v) => ((s.theme = v), apply()))),
       field('文字サイズ', sel(s.fontSize, [['s', '小'], ['m', '中'], ['l', '大'], ['xl', '特大']], (v) => ((s.fontSize = v), apply()))),
-      field('画像', sel(s.images, [['all', 'すべて表示'], ['first', '最初の記事だけ大きく'], ['none', '表示しない']], (v) => ((s.images = v), persist(), renderBoard()))),
+      field('サムネイルの出し方', sel(s.images, [['all', 'すべての記事'], ['first', '最初の記事だけ大きく'], ['none', 'どのフィードも出さない']], (v) => ((s.images = v), persist(), renderBoard()))),
       field(
         '自動更新',
         sel(s.refreshMin, [[15, '15分'], [30, '30分'], [45, '45分'], [60, '60分'], [0, '更新しない']], (v) => ((s.refreshMin = Number(v)), persist(), scheduleRefresh())),
       ),
     ),
-    h('p', { class: 'muted small' }, 'フィードごとの表示・非表示は、各フィードの見出しの「⋯」メニューで切り替えられます。'),
+    h('p', { class: 'muted small' }, 'サムネイルは最初は非表示です。出したいフィードは、見出しの「⋯」で開く編集画面でオンにしてください。'),
     check(s.ogThumbs, 'RSSに画像が無い記事は、記事ページからサムネイルを取得する', (v) => ((s.ogThumbs = v), persist(), renderBoard())),
     check(s.newTab, 'リンクを新しいタブで開く', (v) => ((s.newTab = v), persist(), renderBoard())),
   );
@@ -1271,14 +1215,7 @@ function init() {
 
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && drag) finishDrag(false);
-    if (e.key === 'Escape') closeFeedMenu();
   });
-  // Close the feed menu on any outside click or scroll.
-  document.addEventListener('pointerdown', (e) => {
-    if (openMenu && !openMenu.el.contains(e.target) && !openMenu.anchor.contains(e.target)) closeFeedMenu();
-  });
-  window.addEventListener('scroll', closeFeedMenu, { passive: true });
-  window.addEventListener('resize', closeFeedMenu);
 
   let resizeTimer = null;
   window.addEventListener('resize', () => {
