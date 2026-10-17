@@ -1,0 +1,6 @@
+{
+  "_comment": "Feeds the Cloudflare proxy cannot reach (the site blocks Cloudflare IPs). GitHub Actions fetches them every 30 minutes into the `mirror` branch; the page reads them from there.",
+  "feeds": [
+    "http://yaraon-blog.com/feed"
+  ]
+}
