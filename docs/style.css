@@ -256,6 +256,10 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
 .feed.stale .items { opacity: 0.6; }
 .feed-actions { display: flex; flex: none; }
 .feed.loading .feed-actions .reload { animation: spin 0.9s linear infinite; }
+.feed-head .collapse-btn { transition: transform 0.15s; font-size: 1.25em; }
+.feed.collapsed .collapse-btn { transform: rotate(-90deg); }
+.feed.collapsed .items { display: none; }
+
 .menu {
   position: fixed;
   z-index: 40;

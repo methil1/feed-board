@@ -1,7 +1,7 @@
-import { h, relTime, download, pickFile, toast } from './dom.js';
-import { fetchFeed, resolveInput, fetchOgImage, safeHttpUrl, FeedError } from './feed.js';
-import * as store from './store.js';
-import { clockWidget, weatherWidget, memoWidget, searchPlace, SEARCH_ENGINES } from './widgets.js';
+import { h, relTime, download, pickFile, toast } from './dom.js?v=202610171527';
+import { fetchFeed, resolveInput, fetchOgImage, safeHttpUrl, FeedError } from './feed.js?v=202610171527';
+import * as store from './store.js?v=202610171527';
+import { clockWidget, weatherWidget, memoWidget, searchPlace, SEARCH_ENGINES } from './widgets.js?v=202610171527';
 
 const MAX_CONCURRENT_FEEDS = 6;
 const MAX_CONCURRENT_OG = 4;
@@ -211,10 +211,21 @@ function buildCard(feed) {
       h('button', { class: 'icon-btn', title: 'すべて既読にする', 'aria-label': 'すべて既読にする', onclick: () => markAllRead(feed.id) }, '✓'),
       h('button', { class: 'icon-btn reload', title: '再読み込み', 'aria-label': '再読み込み', onclick: () => loadFeed(feed, true) }, '⟳'),
       h('button', { class: 'icon-btn', title: 'メニュー', 'aria-label': 'メニュー', 'aria-haspopup': 'menu', onclick: (e) => openFeedMenu(e.currentTarget, feed.id) }, '⋯'),
+      h(
+        'button',
+        {
+          class: 'icon-btn collapse-btn',
+          title: feed.collapsed ? '開く' : '折りたたむ',
+          'aria-label': feed.collapsed ? '開く' : '折りたたむ',
+          'aria-expanded': String(!feed.collapsed),
+          onclick: () => toggleCollapse(feed.id),
+        },
+        '▾',
+      ),
     ),
   );
   const list = h('ul', { class: 'items' }, h('li', { class: 'placeholder' }, '読み込み中…'));
-  const el = h('article', { class: 'feed', 'data-id': feed.id }, head, list);
+  const el = h('article', { class: `feed${feed.collapsed ? ' collapsed' : ''}`, 'data-id': feed.id }, head, list);
   setupDrag(head, el, feed.id);
   const card = { el, list, badge, status, stale, feed };
   cards.set(feed.id, card);
@@ -344,6 +355,20 @@ function markStale(card, items) {
     const d = new Date(newest);
     card.stale.title = `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} から更新がありません`;
   }
+}
+
+function toggleCollapse(feedId) {
+  const feed = currentPage().feeds.find((f) => f.id === feedId);
+  const card = cards.get(feedId);
+  if (!feed || !card) return;
+  feed.collapsed = !feed.collapsed;
+  persist();
+  card.el.classList.toggle('collapsed', feed.collapsed);
+  const btn = card.el.querySelector('.collapse-btn');
+  const label = feed.collapsed ? '開く' : '折りたたむ';
+  btn.title = label;
+  btn.setAttribute('aria-label', label);
+  btn.setAttribute('aria-expanded', String(!feed.collapsed));
 }
 
 function toggleThumbs(feedId) {

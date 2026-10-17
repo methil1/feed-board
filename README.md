@@ -45,6 +45,17 @@ ALLOWED_ORIGINS="http://localhost:8080,http://127.0.0.1:8080"
 
 When served from `localhost`, the page talks to the local proxy automatically.
 
+## Releasing front-end changes
+
+GitHub Pages caches files for 10 minutes and browsers may keep stale ES
+modules across reloads. Before committing changes under `docs/`, run
+
+```sh
+python tools/bump_version.py
+```
+
+which stamps a new `?v=<timestamp>` onto every CSS/JS reference.
+
 ## Deploy
 
 1. `cd worker && npx wrangler login && npx wrangler deploy`
