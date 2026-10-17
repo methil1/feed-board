@@ -1,7 +1,7 @@
-import { h, relTime, download, pickFile, toast } from './dom.js?v=202610171844';
-import { fetchFeed, resolveInput, fetchOgImage, safeHttpUrl, FeedError } from './feed.js?v=202610171844';
-import * as store from './store.js?v=202610171844';
-import { clockWidget, weatherWidget, memoWidget, searchPlace, SEARCH_ENGINES } from './widgets.js?v=202610171844';
+import { h, relTime, download, pickFile, toast } from './dom.js?v=202610171853';
+import { fetchFeed, resolveInput, fetchOgImage, safeHttpUrl, FeedError } from './feed.js?v=202610171853';
+import * as store from './store.js?v=202610171853';
+import { clockWidget, weatherWidget, memoWidget, searchPlace, SEARCH_ENGINES } from './widgets.js?v=202610171853';
 
 const MAX_CONCURRENT_FEEDS = 6;
 const MAX_CONCURRENT_OG = 4;
@@ -130,6 +130,7 @@ function renderBoard() {
   const board = $('#board');
   cards.clear();
   ogObserver.disconnect();
+  metaObserver.disconnect();
   const n = effectiveColumns(page.columns);
   renderedCols = n;
   board.style.setProperty('--cols', String(n));
@@ -223,6 +224,7 @@ function buildCard(feed) {
     ),
   );
   const list = h('ul', { class: 'items' }, h('li', { class: 'placeholder' }, '読み込み中…'));
+  metaObserver.observe(list);
   const el = h('article', { class: `feed${feed.collapsed ? ' collapsed' : ''}`, 'data-id': feed.id }, head, list);
   setupDrag(head, el, feed.id);
   const card = { el, list, badge, status, stale, feed };
@@ -271,6 +273,7 @@ function renderItems(card, data) {
         const nb = li.querySelector('.new');
         if (nb) nb.remove();
         updateBadge(card);
+        layoutMeta(list);
       };
       link.addEventListener('click', onOpen);
       link.addEventListener('auxclick', (e) => {
@@ -285,6 +288,32 @@ function renderItems(card, data) {
     }),
   );
   updateBadge(card);
+  requestAnimationFrame(() => layoutMeta(list));
+}
+
+// Put "NEW · 5分前" at the right end of the title's last line when it fits
+// there, otherwise right-aligned on the line below. The title is clamped to
+// two lines, so this has to be measured rather than done in CSS.
+const META_GAP = 12;
+const metaObserver = new ResizeObserver((entries) => {
+  for (const e of entries) layoutMeta(e.target);
+});
+
+function layoutMeta(list) {
+  // Measure everything first, then write, to avoid a layout per item.
+  const results = [...list.querySelectorAll('.item-text')].map((text) => {
+    const link = text.querySelector('.item-title');
+    const meta = text.querySelector('.item-meta');
+    if (!link || !meta || !meta.firstChild) return [text, false];
+    const box = link.getBoundingClientRect();
+    const range = document.createRange();
+    range.selectNodeContents(link);
+    // Lines cut off by the clamp sit below the box; ignore them.
+    const lines = [...range.getClientRects()].filter((r) => r.width > 0 && r.bottom <= box.bottom + 1);
+    const last = lines[lines.length - 1];
+    return [text, Boolean(last) && box.right - last.right >= meta.offsetWidth + META_GAP];
+  });
+  for (const [text, inline] of results) text.classList.toggle('meta-inline', inline);
 }
 
 // Newest first. Some blogs pin old posts at the top of their RSS; undated

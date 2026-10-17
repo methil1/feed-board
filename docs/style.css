@@ -283,7 +283,7 @@ body.is-dragging, body.is-dragging * { cursor: grabbing !important; user-select:
 }
 .item:first-child { border-top: 0; }
 .item:hover { background: var(--hover); }
-.item-text { min-width: 0; flex: 1; }
+.item-text { min-width: 0; flex: 1; position: relative; }
 .item-title {
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -293,7 +293,10 @@ body.is-dragging, body.is-dragging * { cursor: grabbing !important; user-select:
 }
 .item-title:hover { text-decoration: underline; }
 .item.read .item-title { color: var(--link-read); }
-.item-meta { display: flex; gap: 6px; align-items: center; font-size: 0.78em; color: var(--muted); margin-top: 1px; }
+.item-meta { display: flex; gap: 6px; align-items: center; font-size: 0.78em; color: var(--muted); margin-top: 1px; width: max-content; margin-left: auto; }
+.item-meta:empty { display: none; }
+/* Sits on the title's last line (see layoutMeta in app.js). */
+.item-text.meta-inline .item-meta { position: absolute; right: 0; bottom: 0.15em; margin: 0; }
 .new { color: var(--new); font-weight: 700; font-size: 0.9em; }
 
 .thumb {
