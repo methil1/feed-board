@@ -1,0 +1,28 @@
+{
+ "updated": "2026-10-31T12:58:27+00:00",
+ "feeds": {
+  "http://yaraon-blog.com/feed": {
+   "file": "fa3272e19f4b.xml",
+   "contentType": "application/rss+xml; charset=UTF-8",
+   "finalUrl": "http://yaraon-blog.com/feed",
+   "fetched": "2026-10-31T12:58:27+00:00"
+  }
+ },
+ "archives": {
+  "https://itainews.com/index.rdf": {
+   "file": "e3cf9b52076c.json",
+   "count": 60,
+   "fetched": "2026-10-31T12:58:27+00:00"
+  },
+  "https://news23vip.livedoor.blog/index.rdf": {
+   "file": "cc98d2c412cb.json",
+   "count": 60,
+   "fetched": "2026-10-31T12:58:27+00:00"
+  },
+  "https://goldennews.blog.jp/index.rdf": {
+   "file": "35def542e51a.json",
+   "count": 60,
+   "fetched": "2026-10-31T12:58:27+00:00"
+  }
+ }
+}
