@@ -1,8 +1,8 @@
-import { h, relTime, download, pickFile, toast } from './dom.js?v=202610172012';
-import { fetchFeed, resolveInput, fetchOgImage, safeHttpUrl, FeedError } from './feed.js?v=202610172012';
-import * as store from './store.js?v=202610172012';
-import { clockWidget, weatherWidget, memoWidget, searchPlace, SEARCH_ENGINES } from './widgets.js?v=202610172012';
-import * as sync from './sync.js?v=202610172012';
+import { h, relTime, download, pickFile, toast } from './dom.js?v=202611112055';
+import { fetchFeed, resolveInput, fetchOgImage, safeHttpUrl, FeedError } from './feed.js?v=202611112055';
+import * as store from './store.js?v=202611112055';
+import { clockWidget, weatherWidget, memoWidget, searchPlace, SEARCH_ENGINES } from './widgets.js?v=202611112055';
+import * as sync from './sync.js?v=202611112055';
 
 const MAX_CONCURRENT_FEEDS = 6;
 const MAX_CONCURRENT_OG = 4;
@@ -120,12 +120,49 @@ function renderWidgets() {
 
 // ---------------------------------------------------------------- board
 
+// On phones each column becomes a full-width pane you swipe sideways between
+// (like feedwatcher's mobile layout), instead of folding into one long column.
+const SWIPE_MAX_WIDTH = 640;
+const swipeMode = () => document.documentElement.clientWidth <= SWIPE_MAX_WIDTH;
+
 function effectiveColumns(pageCols) {
+  if (swipeMode()) return pageCols;
   const fit = Math.max(1, Math.floor(document.documentElement.clientWidth / 300));
   return Math.max(1, Math.min(pageCols, fit));
 }
 
 let renderedCols = 0;
+let renderedSwipe = false;
+const swipePane = new Map(); // page id -> pane index last viewed this session
+
+function renderPager(board, count, page) {
+  const pager = $('#pager');
+  if (!pager) return;
+  if (!renderedSwipe || count < 2) {
+    pager.hidden = true;
+    pager.replaceChildren();
+    board.onscroll = null;
+    return;
+  }
+  const dots = Array.from({ length: count }, (_, i) =>
+    h('button', {
+      class: 'pager-dot',
+      'aria-label': `${i + 1}列目`,
+      onclick: () => board.scrollTo({ left: i * board.clientWidth, behavior: 'smooth' }),
+    }),
+  );
+  pager.replaceChildren(...dots);
+  pager.hidden = false;
+  const sync = () => {
+    const i = Math.max(0, Math.min(count - 1, Math.round(board.scrollLeft / Math.max(board.clientWidth, 1))));
+    dots.forEach((d, k) => d.classList.toggle('on', k === i));
+    swipePane.set(page.id, i);
+  };
+  board.onscroll = sync;
+  const start = Math.min(count - 1, swipePane.get(page.id) || 0);
+  board.scrollLeft = start * board.clientWidth;
+  sync();
+}
 
 function renderBoard() {
   const page = currentPage();
@@ -135,9 +172,12 @@ function renderBoard() {
   metaObserver.disconnect();
   const n = effectiveColumns(page.columns);
   renderedCols = n;
+  renderedSwipe = swipeMode();
+  board.classList.toggle('swipe', renderedSwipe);
   board.style.setProperty('--cols', String(n));
 
   if (page.feeds.length === 0) {
+    renderPager(board, 0, page);
     board.replaceChildren(
       h(
         'div',
@@ -161,6 +201,7 @@ function renderBoard() {
     return col;
   });
   board.replaceChildren(...cols);
+  renderPager(board, cols.length, page);
   refreshPage(false);
 }
 
@@ -1370,7 +1411,7 @@ function init() {
   window.addEventListener('resize', () => {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
-      if (effectiveColumns(currentPage().columns) !== renderedCols) renderBoard();
+      if (effectiveColumns(currentPage().columns) !== renderedCols || swipeMode() !== renderedSwipe) renderBoard();
     }, 200);
   });
   document.addEventListener('visibilitychange', () => {

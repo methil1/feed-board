@@ -401,6 +401,21 @@ body.is-dragging, body.is-dragging * { cursor: grabbing !important; user-select:
   .tabs { order: 3; flex-basis: 100%; }
   .widgets { padding: 10px 12px 0; gap: 10px; }
   .board { padding: 10px 12px 32px; gap: 10px; }
+  .board.swipe {
+    display: flex;
+    gap: 0;
+    padding: 10px 0 32px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+  .board.swipe::-webkit-scrollbar { display: none; }
+  .board.swipe .col { flex: 0 0 100%; min-width: 0; box-sizing: border-box; padding: 0 12px; scroll-snap-align: start; scroll-snap-stop: always; }
+  .pager { display: flex; justify-content: center; gap: 4px; padding: 6px 0 0; }
+  .pager-dot { width: 28px; height: 20px; border: 0; background: none; padding: 0; position: relative; cursor: pointer; }
+  .pager-dot::after { content: ''; position: absolute; left: 50%; top: 50%; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; background: var(--muted); opacity: 0.4; }
+  .pager-dot.on::after { background: var(--accent); opacity: 1; }
   .feed-head { cursor: default; }
   .item { padding: 9px 12px; }
 }
